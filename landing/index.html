@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Toolgate — Monetize your MCP tools with usage-based payments</title>
+  <meta name="description" content="Embedded payment enforcement SDK for MCP servers. Add per-call pricing, prepaid balance, Stripe top-ups, and execution-time access control in 5 lines of code.">
+  <meta property="og:title" content="Toolgate — Monetize MCP Tools">
+  <meta property="og:description" content="5 lines to monetize. Full control when you need it.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x26A1;</text></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0a0a0b',
+            surface: '#141416',
+            border: '#27272a',
+            accent: '#6366f1',
+            'accent-light': '#818cf8',
+            muted: '#71717a',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { background: #0a0a0b; }
+    .gradient-text {
+      background: linear-gradient(135deg, #818cf8 0%, #6366f1 50%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .glow { box-shadow: 0 0 60px rgba(99, 102, 241, 0.15); }
+    .code-block { position: relative; }
+    .code-block .copy-btn {
+      position: absolute; top: 12px; right: 12px;
+      opacity: 0; transition: opacity 0.2s;
+    }
+    .code-block:hover .copy-btn { opacity: 1; }
+    .feature-card { transition: border-color 0.2s, box-shadow 0.2s; }
+    .feature-card:hover { border-color: #6366f1; box-shadow: 0 0 30px rgba(99, 102, 241, 0.1); }
+    pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .install-box { cursor: pointer; transition: border-color 0.2s; }
+    .install-box:hover { border-color: #6366f1; }
+    .table-row:nth-child(even) { background: rgba(255,255,255,0.02); }
+  </style>
+</head>
+<body class="text-zinc-300 antialiased">
+
+  <!-- ═══ HERO ═══ -->
+  <section class="min-h-[85vh] flex items-center justify-center px-6">
+    <div class="max-w-3xl mx-auto text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border text-xs text-muted mb-8">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        Now in public alpha
+      </div>
+
+      <h1 class="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-6">
+        Monetize your MCP tools<br>
+        with <span class="gradient-text">usage-based payments</span>
+      </h1>
+
+      <p class="text-lg sm:text-xl text-muted max-w-2xl mx-auto mb-10 leading-relaxed">
+        Embedded payment enforcement SDK for MCP servers.
+        Add per-call pricing, prepaid balance, and Stripe top-ups
+        to any tool — no proxy, no marketplace, full control.
+      </p>
+
+      <!-- Install box -->
+      <div class="install-box inline-flex items-center gap-3 bg-surface border border-border rounded-lg px-5 py-3 mb-8 font-mono text-sm" onclick="copyInstall(this)">
+        <span class="text-muted select-none">$</span>
+        <span class="text-white" id="install-text">npm install @tkorkmaz/toolgate</span>
+        <button class="text-muted hover:text-white transition-colors ml-2" title="Copy">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-center gap-4">
+        <a href="https://github.com/tkorkmazeth/toolgate" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-white text-black font-semibold text-sm hover:bg-zinc-200 transition-colors">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          View on GitHub
+        </a>
+        <a href="https://www.npmjs.com/package/@tkorkmaz/toolgate" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-border text-zinc-300 font-semibold text-sm hover:border-accent hover:text-white transition-colors">
+          npm package
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CODE EXAMPLE ═══ -->
+  <section class="px-6 pb-24">
+    <div class="max-w-2xl mx-auto">
+      <p class="text-center text-sm text-muted mb-4 font-medium uppercase tracking-wider">5 lines to monetize</p>
+      <div class="code-block bg-surface border border-border rounded-xl overflow-hidden glow">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-border">
+          <span class="w-3 h-3 rounded-full bg-red-500/60"></span>
+          <span class="w-3 h-3 rounded-full bg-yellow-500/60"></span>
+          <span class="w-3 h-3 rounded-full bg-green-500/60"></span>
+          <span class="text-xs text-muted ml-2 font-mono">my-mcp-server.ts</span>
+        </div>
+        <div class="p-5 overflow-x-auto">
+          <pre><code class="language-typescript text-sm leading-relaxed">import { ToolGate, createMcpAdapter } from "@tkorkmaz/toolgate";
+
+const gate = new ToolGate({ publisherKey: "tg_pub_xxx" });
+const mcp = createMcpAdapter(gate);
+
+mcp.paidTool("premium_search", {
+  price: 0.05,                    // $0.05 per call
+  description: "AI-powered deep search",
+  inputSchema: {
+    type: "object",
+    properties: { query: { type: "string" } },
+    required: ["query"],
+  },
+  handler: async ({ query }) => {
+    return { results: await deepSearch(query) };
+  },
+  fallback: async ({ query }) => {
+    return { results: await basicSearch(query), note: "Top up for premium" };
+  },
+});
+
+mcp.registerAll(server);</code></pre>
+        </div>
+        <button class="copy-btn px-3 py-1.5 rounded bg-zinc-700 text-xs text-zinc-300 hover:bg-zinc-600 transition-colors" onclick="copyCode(this)">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ HOW IT WORKS ═══ -->
+  <section class="px-6 py-24 border-t border-border">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl font-bold text-white text-center mb-4">How it works</h2>
+      <p class="text-muted text-center mb-16 max-w-xl mx-auto">Toolgate sits inside your MCP server code. When an agent calls a paid tool, the SDK checks the caller's prepaid balance, executes the handler, and returns a receipt.</p>
+
+      <div class="grid md:grid-cols-3 gap-8">
+        <div class="text-center">
+          <div class="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4">
+            <span class="text-accent font-bold text-lg">1</span>
+          </div>
+          <h3 class="font-semibold text-white mb-2">Install & wrap</h3>
+          <p class="text-sm text-muted leading-relaxed"><code class="text-accent-light text-xs">npm install toolgate</code> and wrap your tool handlers with <code class="text-accent-light text-xs">paidTool()</code>. Set a price — static, dynamic, or tiered.</p>
+        </div>
+        <div class="text-center">
+          <div class="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4">
+            <span class="text-accent font-bold text-lg">2</span>
+          </div>
+          <h3 class="font-semibold text-white mb-2">Callers top up</h3>
+          <p class="text-sm text-muted leading-relaxed">When balance is low, the SDK returns a Stripe Checkout link. Users top up once — subsequent calls are instant with no payment friction.</p>
+        </div>
+        <div class="text-center">
+          <div class="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4">
+            <span class="text-accent font-bold text-lg">3</span>
+          </div>
+          <h3 class="font-semibold text-white mb-2">You get paid</h3>
+          <p class="text-sm text-muted leading-relaxed">Every paid call generates a receipt. Revenue flows to your Stripe account. Track everything with built-in metering and hooks.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ FEATURES ═══ -->
+  <section class="px-6 py-24 border-t border-border">
+    <div class="max-w-5xl mx-auto">
+      <h2 class="text-3xl font-bold text-white text-center mb-4">Full control when you need it</h2>
+      <p class="text-muted text-center mb-16 max-w-xl mx-auto">Not just a billing layer. Toolgate gives you execution-level control over how your tools make money.</p>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Dynamic Pricing -->
+        <div class="feature-card bg-surface border border-border rounded-xl p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+              <svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white">Dynamic Pricing</h3>
+          </div>
+          <p class="text-sm text-muted mb-4">Price based on input complexity, output size, or any custom logic. A proxy can't do this — it only sees the request envelope.</p>
+          <pre class="bg-bg rounded-lg p-3 overflow-x-auto"><code class="language-typescript text-xs">price: (input) => input.text.length * 0.001</code></pre>
+        </div>
+
+        <!-- Tiered Access -->
+        <div class="feature-card bg-surface border border-border rounded-xl p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white">Free Tier + Premium</h3>
+          </div>
+          <p class="text-sm text-muted mb-4">Give users free calls per day/week/month, then charge for premium access. Convert free users to paying ones naturally.</p>
+          <pre class="bg-bg rounded-lg p-3 overflow-x-auto"><code class="language-typescript text-xs">tiers: { free: { limit: 10, period: "day" },
+        premium: { price: 0.03 } }</code></pre>
+        </div>
+
+        <!-- Graceful Fallback -->
+        <div class="feature-card bg-surface border border-border rounded-xl p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+              <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white">Graceful Fallback</h3>
+          </div>
+          <p class="text-sm text-muted mb-4">When a caller can't pay, return a degraded response instead of a hard block. Better UX, higher conversion to paid.</p>
+          <pre class="bg-bg rounded-lg p-3 overflow-x-auto"><code class="language-typescript text-xs">onPaymentFailed: "fallback",
+fallback: async (input) => basicResult(input)</code></pre>
+        </div>
+
+        <!-- Execution Metering -->
+        <div class="feature-card bg-surface border border-border rounded-xl p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h3 class="font-semibold text-white">Execution Metering</h3>
+          </div>
+          <p class="text-sm text-muted mb-4">Charge based on actual execution time, tokens processed, or any metric. Postpaid metering calculates cost after the handler runs.</p>
+          <pre class="bg-bg rounded-lg p-3 overflow-x-auto"><code class="language-typescript text-xs">price: "postpaid",
+meter: async (i, o, m) => ({ amount: m.durationMs * 0.0001 })</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ COMPARISON ═══ -->
+  <section class="px-6 py-24 border-t border-border">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl font-bold text-white text-center mb-4">How Toolgate compares</h2>
+      <p class="text-muted text-center mb-12 max-w-xl mx-auto">Embedded SDK vs proxy vs marketplace — different architectures for different needs.</p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-border">
+              <th class="text-left py-3 px-4 text-muted font-medium"></th>
+              <th class="text-center py-3 px-4 text-accent font-semibold">Toolgate</th>
+              <th class="text-center py-3 px-4 text-muted font-medium">xpay.sh</th>
+              <th class="text-center py-3 px-4 text-muted font-medium">MCPize</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Architecture</td>
+              <td class="py-3 px-4 text-center text-white font-medium">Embedded SDK</td>
+              <td class="py-3 px-4 text-center">Reverse proxy</td>
+              <td class="py-3 px-4 text-center">Marketplace</td>
+            </tr>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Setup</td>
+              <td class="py-3 px-4 text-center text-white">npm install + 5 lines</td>
+              <td class="py-3 px-4 text-center">Proxy URL config</td>
+              <td class="py-3 px-4 text-center">Platform signup</td>
+            </tr>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Payment</td>
+              <td class="py-3 px-4 text-center text-white">Fiat (Stripe) + crypto</td>
+              <td class="py-3 px-4 text-center">USDC only</td>
+              <td class="py-3 px-4 text-center">Stripe subscription</td>
+            </tr>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Pricing model</td>
+              <td class="py-3 px-4 text-center text-white">Dynamic / tiered / metered</td>
+              <td class="py-3 px-4 text-center">Static per-tool</td>
+              <td class="py-3 px-4 text-center">Monthly subscription</td>
+            </tr>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Runtime enforcement</td>
+              <td class="py-3 px-4 text-center"><span class="text-emerald-400">Yes</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-emerald-400">Yes</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+            </tr>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Fallback responses</td>
+              <td class="py-3 px-4 text-center"><span class="text-emerald-400">Yes</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+            </tr>
+            <tr class="table-row border-b border-border/50">
+              <td class="py-3 px-4 text-zinc-400">Execution metering</td>
+              <td class="py-3 px-4 text-center"><span class="text-emerald-400">Yes</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+            </tr>
+            <tr class="table-row">
+              <td class="py-3 px-4 text-zinc-400">Lifecycle hooks</td>
+              <td class="py-3 px-4 text-center"><span class="text-emerald-400">Yes</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+              <td class="py-3 px-4 text-center"><span class="text-red-400">No</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CTA ═══ -->
+  <section class="px-6 py-24 border-t border-border">
+    <div class="max-w-2xl mx-auto text-center">
+      <h2 class="text-3xl font-bold text-white mb-4">Start monetizing in minutes</h2>
+      <p class="text-muted mb-8">Toolgate is open source and free to start. Add usage-based payments to your MCP tools today.</p>
+
+      <div class="install-box inline-flex items-center gap-3 bg-surface border border-border rounded-lg px-5 py-3 mb-8 font-mono text-sm" onclick="copyInstall(this)">
+        <span class="text-muted select-none">$</span>
+        <span class="text-white">npm install @tkorkmaz/toolgate</span>
+        <button class="text-muted hover:text-white transition-colors ml-2" title="Copy">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-center gap-4">
+        <a href="https://github.com/tkorkmazeth/toolgate" target="_blank" class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-accent hover:bg-accent-light text-white font-semibold text-sm transition-colors">
+          Get Started
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+        <a href="https://github.com/tkorkmazeth/toolgate/tree/main/examples" target="_blank" class="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-border text-zinc-300 font-semibold text-sm hover:border-accent hover:text-white transition-colors">
+          View Examples
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="px-6 py-12 border-t border-border">
+    <div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <span class="text-lg">&#x26A1;</span>
+        <span class="font-semibold text-white">Toolgate</span>
+        <span class="text-muted text-sm ml-2">v0.1.0-alpha</span>
+      </div>
+      <div class="flex items-center gap-6 text-sm text-muted">
+        <a href="https://www.npmjs.com/package/@tkorkmaz/toolgate" target="_blank" class="hover:text-white transition-colors">npm</a>
+        <a href="https://github.com/tkorkmazeth/toolgate" target="_blank" class="hover:text-white transition-colors">GitHub</a>
+        <a href="mailto:hello@toolgate.dev" class="hover:text-white transition-colors">hello@toolgate.dev</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    hljs.highlightAll();
+
+    function copyInstall(el) {
+      navigator.clipboard.writeText('npm install @tkorkmaz/toolgate');
+      const btn = el.querySelector('button');
+      const origHTML = btn.innerHTML;
+      btn.innerHTML = '<span class="text-emerald-400 text-xs">Copied!</span>';
+      setTimeout(() => btn.innerHTML = origHTML, 1500);
+    }
+
+    function copyCode(btn) {
+      const code = btn.closest('.code-block').querySelector('code').textContent;
+      navigator.clipboard.writeText(code);
+      btn.textContent = 'Copied!';
+      btn.classList.add('text-emerald-400');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('text-emerald-400'); }, 1500);
+    }
+  </script>
+</body>
+</html>
