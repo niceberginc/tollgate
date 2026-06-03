@@ -12,6 +12,8 @@ export interface ToolGateConfig {
   hooks?: GlobalHooks;
   /** Payment rail adapters for 402 settlement options */
   railAdapters?: RailAdapter[];
+  /** Payment mode — prepaid (balance-only), per_request (rail-only), or hybrid. Default: "hybrid" */
+  paymentMode?: PaymentMode;
   /**
    * Base URL for Stripe top-up redirect links included in 402 responses.
    * The SDK appends `?publisher=...&caller=...&amount=...` to this URL.
@@ -19,9 +21,68 @@ export interface ToolGateConfig {
    * Defaults to the Toolgate hosted API.
    */
   topUpBaseUrl?: string;
+  /** Idempotency store for duplicate request handling. Default: InMemoryIdempotencyStore */
+  idempotencyStore?: IdempotencyStore;
+  /** Execution trace store. Default: InMemoryTraceStore */
+  traceStore?: TraceStore;
+  /**
+   * Default idempotency TTL in seconds. After this, same key = new execution.
+   * Default: 3600 (1 hour).
+   */
+  idempotencyTtlSeconds?: number;
 }
 
 export type PaymentRail = "stripe" | "x402" | "mpp";
+
+export type PaymentMode = "prepaid" | "per_request" | "hybrid";
+
+// ─── x402 Network Types ──────────────────────────────────
+
+/**
+ * Typed x402 network config.
+ * EVM uses 0x-prefixed addresses, Solana uses base58.
+ * CAIP-2 format: "eip155:{chainId}" or "solana:{genesisHash}"
+ */
+export type X402Network =
+  | {
+      kind: "evm";
+      /** CAIP-2 network ID, e.g. "eip155:8453" */
+      caip2: `eip155:${string}`;
+      /** ERC-20 token contract address (0x...) */
+      asset?: `0x${string}`;
+      /** Token decimals (default: 6 for USDC) */
+      decimals?: number;
+    }
+  | {
+      kind: "solana";
+      /** CAIP-2 network ID, e.g. "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" */
+      caip2: `solana:${string}`;
+      /** SPL token mint address (base58) */
+      asset?: string;
+      /** Token decimals (default: 6 for USDC) */
+      decimals?: number;
+    };
+
+// ─── MPP Method Config (typed, not opaque) ───────────────
+
+export type MppMethodConfig =
+  | {
+      name: "tempo";
+      /** Tempo token contract address (e.g., pathUSD: "0x20c0...") */
+      currency: string;
+      /** Recipient wallet address */
+      recipient: string;
+    }
+  | {
+      name: "stripe";
+      /** Stripe account ID that receives the payment */
+      stripeAccountId?: string;
+    }
+  | {
+      name: string;
+      /** Custom method — name + arbitrary params */
+      params: Record<string, unknown>;
+    };
 
 // ─── Pricing ───────────────────────────────────────────────
 
@@ -117,6 +178,43 @@ export interface PaidToolConfig {
     reason: PolicyDecision | "insufficient_balance",
     ctx: ExecutionContext,
   ) => void | Promise<void>;
+
+  // ── Phase 2: Idempotency & Recovery ───────────────────
+
+  /**
+   * How to extract idempotency key from input.
+   * If string: used as-is (static key for all calls).
+   * If function: called with (input, callerId) to derive key.
+   * If omitted: auto-generated from tool name + callerId + input hash.
+   */
+  idempotencyKey?: string | ((input: unknown, callerId: string) => string);
+
+  /**
+   * What to do when a duplicate request arrives for a completed execution.
+   * Default: "return_previous_result"
+   */
+  onDuplicate?: "return_previous_result" | "re_execute" | "block";
+
+  /** Fires when a duplicate request is detected */
+  onDuplicateDetected?: (
+    input: unknown,
+    record: IdempotencyRecord,
+    ctx: ExecutionContext,
+  ) => void | Promise<void>;
+
+  /** Fires when estimated cost exceeds balance and cost is uncertain */
+  onCostOverrun?: (
+    input: unknown,
+    estimatedCost: number,
+    ctx: ExecutionContext,
+  ) => RecoveryAction | Promise<RecoveryAction>;
+
+  /** Fires when tool execution times out */
+  onToolTimeout?: (
+    input: unknown,
+    durationMs: number,
+    ctx: ExecutionContext,
+  ) => RecoveryAction | Promise<RecoveryAction>;
 }
 
 // ─── Execution Policy ──────────────────────────────────────
@@ -244,41 +342,128 @@ export interface CreditMeta {
 
 // ─── Rail Adapter (settlement layer abstraction) ──────────
 
-/**
- * A RailAdapter handles payment settlement for a specific rail.
- * It converts a payment requirement into a settlement action
- * (e.g., Stripe Checkout URL, MPP session, x402 challenge).
- *
- * This is NOT the ledger — it's the bridge between "payment needed"
- * and "payment settled". The ledger gets credited when settlement completes.
- */
 export interface RailAdapter {
   /** Which rail this adapter handles */
   rail: PaymentRail;
 
   /**
-   * Build a settlement action for the given payment requirement.
-   * Returns a URL, challenge, or session that the caller can use to pay.
+   * Create a payment challenge for the caller.
+   * Returns a standardized settlement action with rail-specific details.
    */
-  createSettlement(params: {
-    callerId: string;
-    amount: number;
-    currency: string;
-    toolName: string;
-    publisherKey: string;
-  }): Promise<SettlementAction>;
+  createChallenge(params: ChallengeParams): Promise<SettlementAction>;
+
+  /**
+   * Verify a payment proof from a retry request.
+   * Returns verified result if valid, null if invalid.
+   * IMPORTANT: For x402, this only validates — does NOT settle on-chain.
+   */
+  verifyPayment?(
+    proof: PaymentProof,
+    context?: VerificationContext,
+  ): Promise<VerificationResult | null>;
+
+  /**
+   * Settle a verified payment on-chain.
+   * For x402: POSTs to facilitator /settle endpoint.
+   * For MPP: may be no-op (webhook-based) or mppx-handled.
+   * Called AFTER tool execution succeeds.
+   */
+  settlePayment?(
+    proof: PaymentProof,
+    context?: VerificationContext,
+  ): Promise<SettlementResult | null>;
+}
+
+/**
+ * Context passed to verify/settle — includes the original payment requirements.
+ */
+export interface VerificationContext {
+  /** The original payment requirement from createChallenge() */
+  paymentRequirements?: X402PaymentRequirement;
+  /** Settlement action ID (maps to pending requirements) */
+  actionId?: string;
+}
+
+export interface SettlementResult {
+  settled: true;
+  rail: PaymentRail;
+  txHash?: string;
+  amount: number;
+  currency: string;
+  receiptId: string;
+}
+
+export interface ChallengeParams {
+  callerId: string;
+  amount: number;
+  currency: string;
+  toolName: string;
+  publisherKey: string;
 }
 
 export interface SettlementAction {
   rail: PaymentRail;
-  /** URL for the caller to complete payment (Stripe Checkout, MPP session, etc.) */
+  /** Unique ID for this settlement action (used to look up pending requirements) */
+  actionId?: string;
+  /** URL for the caller to complete payment (Stripe Checkout etc.) */
   url?: string;
-  /** x402 challenge payload for crypto-native agents */
-  x402Challenge?: Record<string, unknown>;
-  /** MPP session ID for streaming micropayments */
-  mppSessionId?: string;
-  /** Expiration timestamp (seconds since epoch) */
+
+  /** x402 payment requirement — full x402-spec format */
+  x402PaymentRequired?: {
+    x402Version: number;
+    accepts: X402PaymentRequirement[];
+  };
+
+  /** MPP challenge — full MPP-spec format */
+  mppChallenge?: {
+    protocol: "mpp";
+    /** Array of MPP challenges (one per payment method) */
+    challenges: MppChallengeEntry[];
+    /** Pre-built WWW-Authenticate header values (for HTTP contexts) */
+    wwwAuthenticate?: string[];
+  };
+
+  /** Expiration (seconds since epoch) */
   expiresAt?: number;
+}
+
+export interface MppChallengeEntry {
+  id: string;
+  realm: string;
+  method: string; // "tempo", "stripe", etc.
+  intent: "charge" | "stream";
+  request: string; // base64url-encoded JSON
+}
+
+export interface X402PaymentRequirement {
+  scheme: string;
+  network: string;
+  maxAmountRequired: string;
+  resource: string;
+  description: string;
+  payTo: string;
+  asset: string;
+  maxTimeoutSeconds: number;
+  extra?: Record<string, unknown>;
+}
+
+export interface PaymentProof {
+  rail: PaymentRail;
+  /** MPP: base64url-encoded credential from Authorization header */
+  mppPaymentHeader?: string;
+  /** x402: raw payment payload from X-PAYMENT header (decoded) */
+  x402PaymentPayload?: Record<string, unknown>;
+  /** Raw request for middleware-level verification */
+  rawRequest?: unknown;
+}
+
+export interface VerificationResult {
+  verified: true;
+  rail: PaymentRail;
+  amount: number;
+  currency: string;
+  /** Receipt/tx ID from the payment rail */
+  receiptId: string;
 }
 
 // ─── Global Hooks ──────────────────────────────────────────
@@ -287,4 +472,180 @@ export interface GlobalHooks {
   onCall?: (tool: string, callerId: string) => void;
   onPayment?: (tool: string, callerId: string, amount: number) => void;
   onError?: (tool: string, error: Error) => void;
+}
+
+// ─── Failure Classification ────────────────────────────────
+//
+// Three categories: payment failures, credential failures, tool failures,
+// and execution failures. Used in ExecutionTrace and recovery decision logic.
+
+export type FailureClass =
+  // Payment failures
+  | "insufficient_balance"
+  | "payment_declined"
+  | "payment_pending"
+  | "rail_unavailable"
+  | "payment_challenge_required"
+  // Credential failures (Basis Theory / Visa IC / ACP ecosystem)
+  | "credential_expired"
+  | "credential_unavailable"
+  | "provider_verification_failed"
+  | "provider_partial_failure"
+  | "user_cancelled"
+  | "merchant_declined"
+  // Tool failures
+  | "tool_timeout"
+  | "tool_failed"
+  | "partial_result"
+  // Execution failures
+  | "cost_overrun"
+  | "duplicate_request"
+  | "settlement_uncertain"
+  | "approval_required";
+
+// ─── Recovery Actions ──────────────────────────────────────
+//
+// What Toolgate does in response to a failure or policy decision.
+// Superset of the existing PolicyDecision type.
+
+export type RecoveryAction =
+  | "execute" // proceed normally
+  | "fallback_response" // return degraded result
+  | "retry_later" // tell caller to retry
+  | "topup_required" // 402 with payment challenge
+  | "refund" // charge happened, undo it
+  | "credit_back" // post-execution credit
+  | "do_not_settle" // x402: don't call /settle (auto-refund)
+  | "no_charge" // execute but don't bill
+  | "partial_response" // return partial + partial charge
+  | "allow_once" // grace period execution
+  | "return_previous_result" // idempotent duplicate
+  | "require_approval" // defer to human/agent approval (Phase 3)
+  | "request_reapproval" // credential expired → ask user to re-approve
+  | "request_new_credential" // credential unavailable → request fresh one
+  | "manual_review"; // escalate to human for non-automatable failures
+
+// ─── Execution Trace ──────────────────────────────────────
+//
+// Immutable record of every paid tool call. Not just logging —
+// this is a core product artifact. Answers: "What did the agent
+// see, decide, and trigger?"
+
+export interface ExecutionTrace {
+  /** Unique trace ID */
+  traceId: string;
+  /** Idempotency key (caller-provided or auto-generated) */
+  idempotencyKey: string;
+  /** Caller identity */
+  callerId: string;
+  /** Tool name */
+  toolName: string;
+  /** djb2 hash of the input (for duplicate detection) */
+  inputHash: string;
+
+  // ── Pricing ──
+  estimatedAmount?: number;
+  finalAmount?: number;
+  currency: string;
+
+  // ── Decision ──
+  /** The execution decision that was made */
+  decision: RecoveryAction;
+  /** Why the normal path couldn't proceed (if applicable) */
+  failureClass?: FailureClass;
+
+  // ── Payment ──
+  rail?: PaymentRail | "prepaid" | "none";
+  challengeId?: string;
+  receiptId?: string;
+
+  // ── Execution ──
+  handlerStatus: "not_started" | "success" | "failed" | "timeout" | "partial";
+  durationMs?: number;
+  fallbackUsed: boolean;
+
+  // ── Settlement / Reversal ──
+  chargeStatus:
+    | "none"
+    | "charged"
+    | "refunded"
+    | "credited_back"
+    | "voided"
+    | "no_charge";
+  refundReason?: string;
+
+  // ── Provider Context (for rail/credential correlation) ──
+  /** Provider-specific trace/correlation IDs for support & debugging. */
+  provider?: {
+    name?: string;
+    traceId?: string;
+    correlationId?: string;
+    enrollmentId?: string;
+    instructionId?: string;
+    credentialExpiresAt?: string;
+  };
+
+  // ── Timestamps ──
+  createdAt: number;
+  updatedAt: number;
+  /** Ordered list of trace events (append-only) */
+  events: TraceEvent[];
+}
+
+export interface TraceEvent {
+  timestamp: number;
+  event: string;
+  detail?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// ─── Idempotency ──────────────────────────────────────────
+
+export type IdempotencyStatus =
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "refunded"
+  | "no_charge"
+  | "fallback_served"
+  | "requires_payment"
+  | "requires_approval";
+
+export interface IdempotencyRecord {
+  key: string;
+  callerId: string;
+  toolName: string;
+  inputHash: string;
+  status: IdempotencyStatus;
+  /** Stored result (for returning on duplicate) */
+  result?: ToolCallResult;
+  traceId: string;
+  createdAt: number;
+  updatedAt: number;
+  /** TTL — auto-expire after this timestamp */
+  expiresAt: number;
+}
+
+/**
+ * Pluggable idempotency store. InMemoryIdempotencyStore for dev,
+ */
+export interface IdempotencyStore {
+  get(key: string): Promise<IdempotencyRecord | null>;
+  set(record: IdempotencyRecord): Promise<void>;
+  update(key: string, updates: Partial<IdempotencyRecord>): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
+/**
+ * Pluggable trace store. In-memory for dev, DB/analytics for production.
+ */
+export interface TraceStore {
+  save(trace: ExecutionTrace): Promise<void>;
+  get(traceId: string): Promise<ExecutionTrace | null>;
+  getByIdempotencyKey(key: string): Promise<ExecutionTrace | null>;
+  list(filter: {
+    callerId?: string;
+    toolName?: string;
+    limit?: number;
+  }): Promise<ExecutionTrace[]>;
 }

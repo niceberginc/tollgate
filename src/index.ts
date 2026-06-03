@@ -2,8 +2,26 @@
 export { ToolGate } from "./toolgate.js";
 export { InMemoryLedger } from "./ledger.js";
 
+// Phase 2: Idempotency & Trace stores
+export { InMemoryIdempotencyStore } from "./idempotency.js";
+export { InMemoryTraceStore } from "./trace-store.js";
+
 // MCP Adapter
 export { McpAdapter, createMcpAdapter } from "./mcp-adapter.js";
+
+// Rail Adapters (Stripe production, MPP via mppx, x402 via @x402/core)
+export {
+  StripeRailAdapter,
+  MppRailAdapter,
+  X402RailAdapter,
+  EVM_USDC_ADDRESSES,
+  SOLANA_USDC_ADDRESSES,
+} from "./rail-adapters/index.js";
+export type {
+  StripeRailConfig,
+  MppRailConfig,
+  X402RailConfig,
+} from "./rail-adapters/index.js";
 
 // Stripe Integration (Phase 1)
 export { StripeAdapter } from "./stripe-adapter.js";
@@ -31,6 +49,25 @@ export type {
   CostEstimate,
   RailAdapter,
   SettlementAction,
+  PaymentMode,
+  ChallengeParams,
+  PaymentProof,
+  VerificationResult,
+  MppMethodConfig,
+  MppChallengeEntry,
+  X402PaymentRequirement,
+  X402Network,
+  VerificationContext,
+  SettlementResult,
+  // Phase 2: Failure/Recovery taxonomy
+  FailureClass,
+  RecoveryAction,
+  ExecutionTrace,
+  TraceEvent,
+  IdempotencyStatus,
+  IdempotencyRecord,
+  IdempotencyStore,
+  TraceStore,
 } from "./types.js";
 
 export type { McpAdapterConfig, McpPaidToolConfig } from "./mcp-adapter.js";
