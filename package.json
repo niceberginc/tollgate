@@ -1,10 +1,10 @@
 {
   "name": "@tkorkmaz/toolgate",
   "version": "0.2.0-alpha.1",
-  "description": "Paid action recovery & execution-control layer for AI agent tools — idempotent execution, failure recovery, graceful fallback, and rail-agnostic billing. Works with Stripe, MPP, and x402.",
+  "description": "Paid-action runtime for MCP tools",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,7 +14,8 @@
   "files": [
     "dist/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "examples/"
   ],
   "engines": {
     "node": ">=18"
@@ -22,9 +23,17 @@
   "scripts": {
     "build": "tsc",
     "scenario:ledger": "npm run build && node examples/mcp-ledger-recovery/scenario.mjs",
+    "scenario:stripe": "npm run build && node integrations/stripe-test-mode/scenario.mjs",
+    "scenario:firecrawl": "npm run build && node integrations/firecrawl-mcp-toolgate/scenario-fake.mjs",
+    "scenario:firecrawl:fake": "npm run build && node integrations/firecrawl-mcp-toolgate/scenario-fake.mjs",
+    "scenario:firecrawl:live": "npm run build && node integrations/firecrawl-mcp-toolgate/scenario-live.mjs",
+    "scenario:mcp-e2e": "npm run build && node integrations/firecrawl-mcp-toolgate/scenario-mcp-e2e.mjs",
     "scenario:mpp": "npm run build && node examples/mcp-mpp-recovery/scenario.mjs",
     "scenario:x402": "npm run build && node examples/mcp-x402-experimental/scenario.mjs",
-    "test": "node --test src/__tests__/paidTool.test.mjs src/__tests__/mcp-adapter.test.mjs src/__tests__/stripe.test.mjs src/__tests__/webhook-handler.test.mjs src/__tests__/db-ledger.test.mjs src/__tests__/rail-adapter.test.mjs src/__tests__/policy.test.mjs src/__tests__/protocol-compliance.test.mjs src/__tests__/idempotency.test.mjs src/__tests__/trace.test.mjs",
+    "scenario:x402-testnet:challenge": "npm run build && node examples/x402-testnet-recovery/challenge.mjs",
+    "scenario:x402-testnet:sign": "npm run build && node examples/x402-testnet-recovery/sign-payload.mjs",
+    "scenario:x402-testnet": "npm run build && node integrations/x402-testnet/scenario.mjs",
+    "test": "npm run build && node --test --test-force-exit src/__tests__/paidTool.test.mjs src/__tests__/mcp-adapter.test.mjs src/__tests__/stripe.test.mjs src/__tests__/webhook-handler.test.mjs src/__tests__/db-ledger.test.mjs src/__tests__/rail-adapter.test.mjs src/__tests__/policy.test.mjs src/__tests__/protocol-compliance.test.mjs src/__tests__/idempotency.test.mjs src/__tests__/trace.test.mjs src/__tests__/firecrawl-integration.test.mjs",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
@@ -47,16 +56,16 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tkorkmazeth/toolgate"
+    "url": "git+https://github.com/tkorkmazeth/toolgate.git"
   },
   "homepage": "https://toolgate.dev",
   "bugs": {
     "url": "https://github.com/tkorkmazeth/toolgate/issues"
   },
   "peerDependencies": {
-    "stripe": ">=14.0.0",
+    "@x402/core": ">=0.1.0",
     "mppx": ">=0.1.0",
-    "@x402/core": ">=0.1.0"
+    "stripe": ">=14.0.0"
   },
   "peerDependenciesMeta": {
     "stripe": {
@@ -70,8 +79,13 @@
     }
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@x402/core": "^2.14.0",
+    "@x402/evm": "^2.14.0",
     "stripe": "^17.7.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "viem": "^2.52.2",
+    "zod": "^3.25.76"
   },
   "author": "Toolgate <hello@toolgate.dev>"
 }

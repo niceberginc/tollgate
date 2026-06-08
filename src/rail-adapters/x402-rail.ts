@@ -176,6 +176,9 @@ export class X402RailAdapter implements RailAdapter {
 
     if (!requirements) return null;
 
+    const facilitatorRequirements =
+      this.toFacilitatorPaymentRequirements(requirements);
+
     try {
       const response = await fetch(`${this.config.facilitatorUrl}/verify`, {
         method: "POST",
@@ -183,7 +186,7 @@ export class X402RailAdapter implements RailAdapter {
         body: JSON.stringify({
           x402Version: this.config.x402Version ?? 1,
           paymentPayload: proof.x402PaymentPayload,
-          paymentRequirements: requirements,
+          paymentRequirements: facilitatorRequirements,
         }),
       });
 
@@ -202,7 +205,8 @@ export class X402RailAdapter implements RailAdapter {
       return {
         verified: true,
         rail: "x402",
-        amount: Number(requirements.maxAmountRequired) / Math.pow(10, decimals),
+        amount:
+          Number(this.getAtomicAmount(requirements)) / Math.pow(10, decimals),
         currency: "usd",
         receiptId: `x402_verify_${Date.now().toString(36)}`,
       };
@@ -227,6 +231,9 @@ export class X402RailAdapter implements RailAdapter {
 
     if (!requirements) return null;
 
+    const facilitatorRequirements =
+      this.toFacilitatorPaymentRequirements(requirements);
+
     try {
       const response = await fetch(`${this.config.facilitatorUrl}/settle`, {
         method: "POST",
@@ -234,7 +241,7 @@ export class X402RailAdapter implements RailAdapter {
         body: JSON.stringify({
           x402Version: this.config.x402Version ?? 1,
           paymentPayload: proof.x402PaymentPayload,
-          paymentRequirements: requirements,
+          paymentRequirements: facilitatorRequirements,
         }),
       });
 
@@ -243,9 +250,11 @@ export class X402RailAdapter implements RailAdapter {
       const result = (await response.json()) as {
         success?: boolean;
         txHash?: string;
+        transaction?: string;
       };
 
       if (!result.success) return null;
+      const txHash = result.txHash ?? result.transaction;
 
       const decimals = this.config.network.decimals ?? 6;
 
@@ -262,14 +271,40 @@ export class X402RailAdapter implements RailAdapter {
       return {
         settled: true,
         rail: "x402",
-        txHash: result.txHash,
-        amount: Number(requirements.maxAmountRequired) / Math.pow(10, decimals),
+        txHash,
+        amount:
+          Number(this.getAtomicAmount(requirements)) / Math.pow(10, decimals),
         currency: "usd",
-        receiptId: result.txHash ?? `x402_settle_${Date.now().toString(36)}`,
+        receiptId: txHash ?? `x402_settle_${Date.now().toString(36)}`,
       };
     } catch {
       return null;
     }
+  }
+
+  private getAtomicAmount(requirements: X402PaymentRequirement): string {
+    return (
+      (requirements as X402PaymentRequirement & { amount?: string }).amount ??
+      requirements.maxAmountRequired
+    );
+  }
+
+  private toFacilitatorPaymentRequirements(
+    requirements: X402PaymentRequirement,
+  ): Record<string, unknown> {
+    if ((this.config.x402Version ?? 1) >= 2) {
+      return {
+        scheme: requirements.scheme,
+        network: requirements.network,
+        amount: this.getAtomicAmount(requirements),
+        asset: requirements.asset,
+        payTo: requirements.payTo,
+        maxTimeoutSeconds: requirements.maxTimeoutSeconds,
+        extra: requirements.extra,
+      };
+    }
+
+    return requirements as unknown as Record<string, unknown>;
   }
 
   // ─── Helpers ──────────────────────────────────────────────
