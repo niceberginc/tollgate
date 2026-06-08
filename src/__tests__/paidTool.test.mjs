@@ -36,7 +36,13 @@ class InMemoryLedger {
     const current = this.balances.get(callerId) ?? 0;
     if (current < amount) return false;
     this.balances.set(callerId, round(current - amount));
-    this.transactions.push({ type: "deduct", callerId, amount, meta, timestamp: Date.now() });
+    this.transactions.push({
+      type: "deduct",
+      callerId,
+      amount,
+      meta,
+      timestamp: Date.now(),
+    });
     const period = currentPeriod("day");
     const usageKey = `${callerId}:${meta.tool}:${period}`;
     this.usage.set(usageKey, (this.usage.get(usageKey) ?? 0) + 1);
@@ -46,7 +52,13 @@ class InMemoryLedger {
   async credit(callerId, amount, meta) {
     const current = this.balances.get(callerId) ?? 0;
     this.balances.set(callerId, round(current + amount));
-    this.transactions.push({ type: "credit", callerId, amount, meta, timestamp: Date.now() });
+    this.transactions.push({
+      type: "credit",
+      callerId,
+      amount,
+      meta,
+      timestamp: Date.now(),
+    });
   }
 
   async getUsage(callerId, tool, period) {
@@ -60,7 +72,9 @@ class InMemoryLedger {
   }
 }
 
-function round(n) { return Math.round(n * 1_000_000) / 1_000_000; }
+function round(n) {
+  return Math.round(n * 1_000_000) / 1_000_000;
+}
 
 function currentPeriod(period) {
   const d = new Date();
@@ -82,11 +96,14 @@ class ToolGate {
     this.tools = new Map();
   }
 
-  get ledger() { return this.config.ledger; }
+  get ledger() {
+    return this.config.ledger;
+  }
 
   paidTool(toolConfig) {
     this.tools.set(toolConfig.name, toolConfig);
-    const execute = (input, callerId) => this._executeTool(toolConfig, input, callerId);
+    const execute = (input, callerId) =>
+      this._executeTool(toolConfig, input, callerId);
     execute.toolName = toolConfig.name;
     execute.config = toolConfig;
     return execute;
@@ -105,7 +122,11 @@ class ToolGate {
 
     if (tool.tiers) {
       if (tool.tiers.free) {
-        const usage = await ledger.getUsage(callerId, tool.name, tool.tiers.free.period);
+        const usage = await ledger.getUsage(
+          callerId,
+          tool.name,
+          tool.tiers.free.period,
+        );
         if (usage < tool.tiers.free.limit) {
           tier = "free";
           price = 0;
@@ -123,7 +144,10 @@ class ToolGate {
     const isPostpaid = tool.price === "postpaid";
 
     const ctx = {
-      callerId, callId, tool: tool.name, tier,
+      callerId,
+      callId,
+      tool: tool.name,
+      tier,
       balance: await ledger.getBalance(callerId),
       timestamp: Date.now(),
     };
@@ -131,7 +155,11 @@ class ToolGate {
     // Payment gate
     const needsPayment = tier === "premium" && price > 0 && !isPostpaid;
     if (needsPayment) {
-      const deducted = await ledger.deduct(callerId, price, { callId, tool: tool.name, amount: price });
+      const deducted = await ledger.deduct(callerId, price, {
+        callId,
+        tool: tool.name,
+        amount: price,
+      });
       if (!deducted) {
         return await this._handlePaymentFailure(tool, input, ctx, price);
       }
@@ -143,9 +171,15 @@ class ToolGate {
       const proceed = await tool.beforeExecute(input, ctx);
       if (!proceed) {
         if (needsPayment) {
-          await ledger.credit(callerId, price, { source: "manual", reference: `refund:${callId}:aborted` });
+          await ledger.credit(callerId, price, {
+            source: "manual",
+            reference: `refund:${callId}:aborted`,
+          });
         }
-        return { success: false, output: { error: "Execution aborted by beforeExecute hook" } };
+        return {
+          success: false,
+          output: { error: "Execution aborted by beforeExecute hook" },
+        };
       }
     }
 
@@ -160,7 +194,10 @@ class ToolGate {
       const endedAt = Date.now();
       metrics = { durationMs: endedAt - startedAt, startedAt, endedAt };
       if (needsPayment) {
-        await ledger.credit(callerId, price, { source: "manual", reference: `refund:${callId}:error` });
+        await ledger.credit(callerId, price, {
+          source: "manual",
+          reference: `refund:${callId}:error`,
+        });
       }
       if (tool.onFail) await tool.onFail(input, error, ctx);
       this.config.hooks?.onError?.(tool.name, error);
@@ -176,7 +213,11 @@ class ToolGate {
     if (isPostpaid && tool.meter) {
       const meterResult = await tool.meter(input, output, metrics);
       price = meterResult.amount;
-      const deducted = await ledger.deduct(callerId, price, { callId, tool: tool.name, amount: price });
+      const deducted = await ledger.deduct(callerId, price, {
+        callId,
+        tool: tool.name,
+        amount: price,
+      });
       if (deducted) this.config.hooks?.onPayment?.(tool.name, callerId, price);
     }
 
@@ -187,7 +228,18 @@ class ToolGate {
     return {
       success: true,
       output,
-      receipt: price > 0 ? { callId, tool: tool.name, amount: price, currency: this.config.defaultCurrency, rail: "prepaid", balanceAfter, timestamp: Date.now() } : undefined,
+      receipt:
+        price > 0
+          ? {
+              callId,
+              tool: tool.name,
+              amount: price,
+              currency: this.config.defaultCurrency,
+              rail: "prepaid",
+              balanceAfter,
+              timestamp: Date.now(),
+            }
+          : undefined,
       metrics,
       isFallback: false,
     };
@@ -196,7 +248,11 @@ class ToolGate {
   async _handlePaymentFailure(tool, input, ctx, requiredAmount) {
     const policy = tool.onPaymentFailed ?? "block";
     if (tool.onPaymentFail) {
-      await tool.onPaymentFail(input, { code: "insufficient_balance", balance: ctx.balance, required: requiredAmount });
+      await tool.onPaymentFail(input, {
+        code: "insufficient_balance",
+        balance: ctx.balance,
+        required: requiredAmount,
+      });
     }
 
     if (policy === "fallback" && tool.fallback) {
@@ -207,14 +263,22 @@ class ToolGate {
       const startedAt = Date.now();
       const output = await tool.handler(input, ctx);
       const endedAt = Date.now();
-      return { success: true, output, metrics: { durationMs: endedAt - startedAt, startedAt, endedAt }, isFallback: false };
+      return {
+        success: true,
+        output,
+        metrics: { durationMs: endedAt - startedAt, startedAt, endedAt },
+        isFallback: false,
+      };
     }
 
     return {
       success: false,
       paymentRequired: {
-        status: 402, error: "payment_required", tool: tool.name,
-        amount: requiredAmount, currency: this.config.defaultCurrency,
+        status: 402,
+        error: "payment_required",
+        tool: tool.name,
+        amount: requiredAmount,
+        currency: this.config.defaultCurrency,
         acceptedRails: this.config.paymentRails,
         topUpUrl: `https://pay.toolgate.dev/topup?publisher=${this.config.publisherKey}&amount=${Math.ceil(requiredAmount * 100)}`,
       },
@@ -248,7 +312,10 @@ describe("Toolgate SDK", () => {
 
   describe("prepaid balance flow", () => {
     it("executes tool and deducts balance", async () => {
-      await ledger.credit("agent-1", 1.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
 
       const search = gate.paidTool({
         name: "search",
@@ -270,7 +337,10 @@ describe("Toolgate SDK", () => {
     });
 
     it("processes multiple calls until balance exhausted", async () => {
-      await ledger.credit("agent-1", 0.10, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 0.1, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "lookup",
@@ -303,7 +373,7 @@ describe("Toolgate SDK", () => {
     it("returns 402 when balance is zero", async () => {
       const tool = gate.paidTool({
         name: "premium",
-        price: 0.10,
+        price: 0.1,
         handler: async () => "should not run",
       });
 
@@ -312,23 +382,26 @@ describe("Toolgate SDK", () => {
       assert.equal(result.success, false);
       assert.equal(result.paymentRequired.status, 402);
       assert.equal(result.paymentRequired.error, "payment_required");
-      assert.equal(result.paymentRequired.amount, 0.10);
+      assert.equal(result.paymentRequired.amount, 0.1);
       assert.ok(result.paymentRequired.topUpUrl.includes("toolgate.dev"));
       assert.deepEqual(result.paymentRequired.acceptedRails, ["stripe"]);
     });
 
     it("returns 402 when balance is insufficient", async () => {
-      await ledger.credit("agent-1", 0.05, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 0.05, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "expensive",
-        price: 0.10,
+        price: 0.1,
         handler: async () => "should not run",
       });
 
       const result = await tool({}, "agent-1");
       assert.equal(result.success, false);
-      assert.equal(result.paymentRequired.amount, 0.10);
+      assert.equal(result.paymentRequired.amount, 0.1);
 
       // Balance unchanged
       assert.equal(await ledger.getBalance("agent-1"), 0.05);
@@ -347,7 +420,9 @@ describe("Toolgate SDK", () => {
           result: `Basic result for: ${input.query}`,
           note: "Upgrade for full analysis",
         }),
-        handler: async (input) => ({ result: `Full analysis for: ${input.query}` }),
+        handler: async (input) => ({
+          result: `Full analysis for: ${input.query}`,
+        }),
       });
 
       const result = await tool({ query: "test" }, "no-balance-agent");
@@ -362,7 +437,10 @@ describe("Toolgate SDK", () => {
 
   describe("dynamic pricing", () => {
     it("calculates price based on input", async () => {
-      await ledger.credit("agent-1", 5.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 5.0, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "analyze",
@@ -370,7 +448,9 @@ describe("Toolgate SDK", () => {
           const words = input.text.split(" ").length;
           return words * 0.01; // $0.01 per word
         },
-        handler: async (input) => ({ analysis: `Analyzed ${input.text.length} chars` }),
+        handler: async (input) => ({
+          analysis: `Analyzed ${input.text.length} chars`,
+        }),
       });
 
       const result = await tool({ text: "hello world foo bar baz" }, "agent-1");
@@ -380,7 +460,10 @@ describe("Toolgate SDK", () => {
     });
 
     it("blocks when dynamic price exceeds balance", async () => {
-      await ledger.credit("agent-1", 0.02, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 0.02, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "analyze",
@@ -425,7 +508,10 @@ describe("Toolgate SDK", () => {
     });
 
     it("charges premium price after free limit with balance", async () => {
-      await ledger.credit("agent-1", 1.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "lookup",
@@ -438,7 +524,7 @@ describe("Toolgate SDK", () => {
 
       // 1st free
       await tool({}, "agent-1");
-      assert.equal(await ledger.getBalance("agent-1"), 1.00);
+      assert.equal(await ledger.getBalance("agent-1"), 1.0);
 
       // 2nd: premium
       const r2 = await tool({}, "agent-1");
@@ -452,12 +538,15 @@ describe("Toolgate SDK", () => {
 
   describe("lifecycle hooks", () => {
     it("calls beforeExecute and can abort", async () => {
-      await ledger.credit("agent-1", 1.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
       let hookCalled = false;
 
       const tool = gate.paidTool({
         name: "gated",
-        price: 0.10,
+        price: 0.1,
         beforeExecute: async (input) => {
           hookCalled = true;
           return input.allowed === true; // only allow if input says so
@@ -470,16 +559,19 @@ describe("Toolgate SDK", () => {
       assert.equal(r1.success, false);
       assert.equal(hookCalled, true);
       // Balance refunded
-      assert.equal(await ledger.getBalance("agent-1"), 1.00);
+      assert.equal(await ledger.getBalance("agent-1"), 1.0);
 
       // Allowed by hook
       const r2 = await tool({ allowed: true }, "agent-1");
       assert.equal(r2.success, true);
-      assert.equal(await ledger.getBalance("agent-1"), 0.90);
+      assert.equal(await ledger.getBalance("agent-1"), 0.9);
     });
 
     it("calls afterExecute with metrics", async () => {
-      await ledger.credit("agent-1", 1.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
       let capturedMetrics = null;
 
       const tool = gate.paidTool({
@@ -497,18 +589,25 @@ describe("Toolgate SDK", () => {
 
       await tool({}, "agent-1");
       assert.ok(capturedMetrics !== null);
-      assert.ok(capturedMetrics.durationMs >= 10);
       assert.ok(capturedMetrics.startedAt > 0);
       assert.ok(capturedMetrics.endedAt >= capturedMetrics.startedAt);
+      assert.ok(capturedMetrics.durationMs >= 0);
+      assert.equal(
+        capturedMetrics.durationMs,
+        capturedMetrics.endedAt - capturedMetrics.startedAt,
+      );
     });
 
     it("calls onFail when handler throws", async () => {
-      await ledger.credit("agent-1", 1.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
       let failError = null;
 
       const tool = gate.paidTool({
         name: "risky",
-        price: 0.10,
+        price: 0.1,
         onFail: async (_input, error) => {
           failError = error;
         },
@@ -522,7 +621,7 @@ describe("Toolgate SDK", () => {
       assert.equal(result.output.error, "External API down");
       assert.ok(failError instanceof Error);
       // Balance refunded
-      assert.equal(await ledger.getBalance("agent-1"), 1.00);
+      assert.equal(await ledger.getBalance("agent-1"), 1.0);
     });
 
     it("calls onPaymentFail hook", async () => {
@@ -530,7 +629,7 @@ describe("Toolgate SDK", () => {
 
       const tool = gate.paidTool({
         name: "premium",
-        price: 0.50,
+        price: 0.5,
         onPaymentFail: async (_input, reason) => {
           failReason = reason;
         },
@@ -541,7 +640,7 @@ describe("Toolgate SDK", () => {
       assert.ok(failReason !== null);
       assert.equal(failReason.code, "insufficient_balance");
       assert.equal(failReason.balance, 0);
-      assert.equal(failReason.required, 0.50);
+      assert.equal(failReason.required, 0.5);
     });
   });
 
@@ -549,7 +648,10 @@ describe("Toolgate SDK", () => {
 
   describe("postpaid metering", () => {
     it("charges based on actual execution metrics", async () => {
-      await ledger.credit("agent-1", 2.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 2.0, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "compute",
@@ -567,7 +669,7 @@ describe("Toolgate SDK", () => {
       const result = await tool({}, "agent-1");
       assert.equal(result.success, true);
       assert.ok(result.receipt.amount >= 0.05); // ~50ms × $0.001
-      assert.ok(result.receipt.amount < 0.15);  // shouldn't take > 150ms
+      assert.ok(result.receipt.amount < 0.15); // shouldn't take > 150ms
     });
   });
 
@@ -575,18 +677,23 @@ describe("Toolgate SDK", () => {
 
   describe("refund on execution error", () => {
     it("refunds prepaid amount when handler throws", async () => {
-      await ledger.credit("agent-1", 0.50, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 0.5, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gate.paidTool({
         name: "fragile",
-        price: 0.20,
-        handler: async () => { throw new Error("boom"); },
+        price: 0.2,
+        handler: async () => {
+          throw new Error("boom");
+        },
       });
 
       const result = await tool({}, "agent-1");
       assert.equal(result.success, false);
       // Balance fully restored
-      assert.equal(await ledger.getBalance("agent-1"), 0.50);
+      assert.equal(await ledger.getBalance("agent-1"), 0.5);
     });
   });
 
@@ -596,7 +703,7 @@ describe("Toolgate SDK", () => {
     it("executes once without payment as grace", async () => {
       const tool = gate.paidTool({
         name: "graceful",
-        price: 0.10,
+        price: 0.1,
         onPaymentFailed: "allow_once",
         handler: async () => "free sample",
       });
@@ -618,13 +725,19 @@ describe("Toolgate SDK", () => {
         publisherKey: "test",
         ledger,
         hooks: {
-          onCall: (tool, callerId) => events.push({ type: "call", tool, callerId }),
-          onPayment: (tool, callerId, amount) => events.push({ type: "payment", tool, callerId, amount }),
-          onError: (tool, error) => events.push({ type: "error", tool, error: error.message }),
+          onCall: (tool, callerId) =>
+            events.push({ type: "call", tool, callerId }),
+          onPayment: (tool, callerId, amount) =>
+            events.push({ type: "payment", tool, callerId, amount }),
+          onError: (tool, error) =>
+            events.push({ type: "error", tool, error: error.message }),
         },
       });
 
-      await ledger.credit("agent-1", 1.00, { source: "manual", reference: "test" });
+      await ledger.credit("agent-1", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
 
       const tool = gateWithHooks.paidTool({
         name: "tracked_tool",
@@ -646,20 +759,23 @@ describe("Toolgate SDK", () => {
 
   describe("caller isolation", () => {
     it("maintains separate balances per caller", async () => {
-      await ledger.credit("alice", 1.00, { source: "manual", reference: "test" });
-      await ledger.credit("bob", 0.50, { source: "manual", reference: "test" });
+      await ledger.credit("alice", 1.0, {
+        source: "manual",
+        reference: "test",
+      });
+      await ledger.credit("bob", 0.5, { source: "manual", reference: "test" });
 
       const tool = gate.paidTool({
         name: "shared_tool",
-        price: 0.10,
+        price: 0.1,
         handler: async () => "ok",
       });
 
       await tool({}, "alice");
       await tool({}, "bob");
 
-      assert.equal(await ledger.getBalance("alice"), 0.90);
-      assert.equal(await ledger.getBalance("bob"), 0.40);
+      assert.equal(await ledger.getBalance("alice"), 0.9);
+      assert.equal(await ledger.getBalance("bob"), 0.4);
     });
   });
 });

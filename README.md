@@ -1,520 +1,149 @@
 # Toolgate
 
-Make paid MCP tools recoverable.
+Toolgate is the paid-action runtime for MCP tools.
 
-Billing-aware execution SDK for paid MCP tools — graceful fallback, programmable billing logic, idempotent retries, execution traces, and rail-agnostic recovery.
+Toolgate sits above payment rails and MCP transports. It adds fallback behavior, idempotent replay, execution traces, and refund or no-charge outcomes when the paid path fails.
 
-Works with Stripe (fiat), MPP (Stripe+Tempo), and x402 (crypto). You handle the billing decisions — Toolgate handles execution reliability.
+Current sprint focus:
 
+- real integration acceptance tests
+- no dashboard yet
+- no full persistence yet
+- no outreach until Stripe test mode plus MCP SDK E2E are both green
+
+## Quickstart
+
+```bash
+npm install
+npm run build
+npm test
 ```
-npm install @tkorkmaz/toolgate
-```
 
----
-
-## Phase 3 Focus
-
-Phase 3 is rail validation plus realistic MCP integration, not dashboard-first product work.
-
-- Examples first: run the deterministic recovery scenarios in `examples/mcp-ledger-recovery`, `examples/mcp-mpp-recovery`, and `examples/mcp-x402-experimental`
-- Persistence later: in-memory stores stay the default until multi-rail behavior and example integrations are stable
-- x402 stays experimental: explicit facilitator configuration is required and settlement uncertainty is surfaced in traces
-- Public npm should remain alpha until the examples and rail assumptions are stable
-
-Run the scenario suites:
+## Acceptance Scenarios
 
 ```bash
 npm run scenario:ledger
+npm run scenario:stripe
+npm run scenario:firecrawl
+npm run scenario:firecrawl:live -- <url>
+npm run scenario:mcp-e2e
 npm run scenario:mpp
 npm run scenario:x402
+npm run scenario:x402-testnet
 ```
 
-Each runner proves the same recovery contract:
+What the current runners cover:
 
-- payment missing -> fallback
-- payment available -> execute
-- duplicate idempotency key -> return previous result with no double charge
-- handler error -> refund or no_charge path
-- trace output -> list trace events
+- payment missing to fallback or payment_required
+- paid execution after recovery
+- duplicate request replay without double charge
+- handler failure refund or no_charge behavior
+- execution trace inspection
 
-## Quick Start
+## Environment-Gated Runs
 
-Works immediately with the built-in in-memory ledger — no Stripe account needed to test:
+`scenario:stripe` uses real Stripe test mode plus Stripe CLI webhook forwarding.
 
-```typescript
-import { ToolGate } from "@tkorkmaz/toolgate";
+Required:
 
-const gate = new ToolGate({ publisherKey: "tg_test" });
+- `STRIPE_SECRET_KEY`
 
-// Pre-load a test balance
-await gate.ledger.credit("user-1", 1.0, {
-  source: "manual",
-  reference: "test",
-});
+`scenario:x402-testnet` uses an explicit x402 facilitator and a real payment proof from an external signer or client flow.
 
-// Wrap any function with payment enforcement
-const search = gate.paidTool({
-  name: "premium_search",
-  price: 0.05, // $0.05 per call
-  handler: async (input) => {
-    return { results: [`Premium result for: ${input.query}`] };
-  },
-  fallback: async (input) => {
-    return { results: ["Free preview. Top up for full results."] };
-  },
-});
+Required:
 
-// Call it
-const result = await search({ query: "hello" }, "user-1");
-// → {
-//     success: true,
-//     output: { results: ["Premium result for: hello"] },
-//     receipt: { callId: "tg_xxx", amount: 0.05, balanceAfter: 0.95, ... }
-//   }
-```
+- `X402_FACILITATOR_URL`
+- `X402_PAY_TO`
+- `X402_PAYMENT_PROOF_JSON`
 
-## What Just Happened?
+Optional for a separate `settlement_uncertain` run:
 
-When you call `search(input, callerId)`, Toolgate runs this pipeline:
+- `X402_PAYMENT_UNCERTAIN_PROOF_JSON`
 
-```
-1. Check balance    – does "user-1" have ≥ $0.05?
-2. Deduct atomically – $0.05 removed *before* execution
-3. Run your handler  – only on successful payment
-4. Return a receipt  – callId, amount, balanceAfter, durationMs
-5. Refund on error   – if handler throws, $0.05 is automatically returned
-```
+Helper flow:
 
-If the balance is insufficient:
+- `npm run scenario:x402-testnet:challenge` creates a Toolgate x402 challenge JSON
+- `npm run scenario:x402-testnet:sign -- <challenge.json>` signs that challenge with `X402_SIGNER_PRIVATE_KEY` and `X402_RPC_URL`
+- feed the resulting `{ actionId, payload }` JSON into `X402_PAYMENT_PROOF_JSON`
 
-- With `fallback` → runs the fallback handler and returns `isFallback: true`
-- Without `fallback` → returns `{ paymentRequired: { status: 402, topUpUrl: "..." } }`
+`scenario:firecrawl:live` uses the real Firecrawl API.
 
----
+Required:
 
-## Features
+- `FIRECRAWL_API_KEY`
 
-### Dynamic Pricing
+## x402 Testnet Flow
 
-Price based on input complexity — translate $0.01 per 100 chars, compute by duration, etc:
-
-```typescript
-const translate = gate.paidTool({
-  name: "smart_translate",
-  price: (input) => Math.ceil(input.text.length / 100) * 0.01,
-  handler: async ({ text, targetLang }) => translate(text, targetLang),
-});
-```
-
-### Free Tier + Premium Access
-
-Give users N free calls per period, then charge:
-
-```typescript
-const lookup = gate.paidTool({
-  name: "data_lookup",
-  tiers: {
-    free: { limit: 10, period: "day" }, // 10 free calls/day
-    premium: { price: 0.03 }, // $0.03 after that
-  },
-  handler: async ({ id }) => fetchData(id),
-});
-```
-
-### Graceful Fallback
-
-Return a degraded result instead of a hard block:
-
-```typescript
-const research = gate.paidTool({
-  name: "deep_research",
-  price: 0.25,
-  onPaymentFailed: "fallback",
-  handler: async (input) => deepAnalysis(input),
-  fallback: async (input) => quickSummary(input), // runs when balance < $0.25
-});
-```
-
-### Execution Policy
-
-Programmatic control over _what happens_ at the billing decision point — per call, per caller, per input:
-
-```typescript
-const search = gate.paidTool({
-  name: "premium_search",
-  price: 0.1,
-  handler: async (input) => deepSearch(input.query),
-  fallback: async (input) => quickSearch(input.query),
-
-  policy: {
-    decide: async ({ balance, tier, input, usageToday }) => {
-      if (tier === "free") return "execute"; // free tier always runs
-      if (balance >= 0.5) return "execute"; // well-funded → execute
-      if (balance > 0 && usageToday < 5) return "allow_once"; // grace period
-      if (balance === 0) return "fallback"; // no balance → degrade gracefully
-      return "payment_required"; // otherwise block
-    },
-  },
-
-  // Track when fallback fires (for analytics)
-  onFallback: async (input, reason, ctx) => {
-    await analytics.track("fallback", { reason, callerId: ctx.callerId });
-  },
-});
-```
-
-**Policy decisions:**
-
-| Decision             | Effect                                    |
-| -------------------- | ----------------------------------------- |
-| `"execute"`          | Normal paid execution                     |
-| `"fallback"`         | Runs fallback handler without charging    |
-| `"payment_required"` | Returns 402, even if balance > 0          |
-| `"allow_once"`       | Executes free (grace period / trial)      |
-| `"estimate"`         | Returns a cost estimate without executing |
-
-Pair with a cost estimator for pre-flight transparency:
-
-```typescript
-const analyze = gate.paidTool({
-  name: "analyze",
-  price: (input) => input.tokens * 0.0001,
-  policy: { decide: async () => "estimate" },
-  estimate: async (input) => ({
-    estimatedPrice: input.tokens * 0.0001,
-    currency: "usd",
-    reason: `${input.tokens} tokens × $0.0001`,
-  }),
-  handler: async (input) => runAnalysis(input),
-});
-```
-
-### Postpaid Metering
-
-Charge based on actual resource consumption (tokens, duration, API cost):
-
-```typescript
-const compute = gate.paidTool({
-  name: "heavy_compute",
-  price: "postpaid",
-  handler: async (input) => doWork(input),
-  meter: async (input, output, metrics) => ({
-    amount: metrics.durationMs * 0.0001, // $0.0001/ms
-  }),
-});
-```
-
-### Lifecycle Hooks
-
-Full control over every step:
-
-```typescript
-const gated = gate.paidTool({
-  name: "gated_tool",
-  price: 0.1,
-  beforeExecute: async (input, ctx) => {
-    // Custom gate — require minimum balance for high-value calls
-    return ctx.balance >= 0.5;
-  },
-  afterExecute: async (input, output, metrics) => {
-    await logToAnalytics({ tool: "gated_tool", ms: metrics.durationMs });
-  },
-  onFail: async (input, error, ctx) => {
-    await alertTeam(error);
-  },
-  onPaymentFail: async (input, reason) => {
-    if (reason.code === "insufficient_balance") {
-      await notifyUser(
-        `Balance: $${reason.balance}. Required: $${reason.required}`,
-      );
-    }
-  },
-  handler: async (input) => doWork(input),
-});
-```
-
-### Global Observability
-
-Hook into every call, payment, and error across all tools:
-
-```typescript
-const gate = new ToolGate({
-  publisherKey: "tg_pub_xxx",
-  hooks: {
-    onCall: (tool, callerId) => metrics.increment(`calls.${tool}`),
-    onPayment: (tool, callerId, amount) => metrics.gauge("revenue", amount),
-    onError: (tool, error) => Sentry.captureException(error),
-  },
-});
-```
-
----
-
-## MCP Adapter
-
-Use Toolgate with the official [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk):
+This repo validates Toolgate's x402 challenge, verify/settle, duplicate replay, and recovery lifecycle. The actual x402 payment payload is produced by the x402 client or signer helper using a test wallet.
 
 ```bash
-npm install @tkorkmaz/toolgate @modelcontextprotocol/sdk
+export X402_NETWORK_CAIP2="eip155:84532"
+export X402_FACILITATOR_URL="https://..."
+export X402_PAY_TO="0xReceiver"
+export X402_RPC_URL="https://..."
+export X402_SIGNER_PRIVATE_KEY="0xTestWalletPrivateKey"
+
+node examples/x402-testnet-recovery/challenge.mjs --request-id x402-paid-001 > challenge.json
+
+node examples/x402-testnet-recovery/sign-payload.mjs challenge.json > proof.json
+
+export X402_PAYMENT_PROOF_JSON="$(cat proof.json)"
+
+npm run scenario:x402-testnet
 ```
 
-```typescript
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ToolGate, createMcpAdapter } from "@tkorkmaz/toolgate";
+For `settlement_uncertain`:
 
-const gate = new ToolGate({ publisherKey: "tg_test" });
-const mcp = createMcpAdapter(gate);
+```bash
+node examples/x402-testnet-recovery/challenge.mjs --request-id x402-uncertain-001 > challenge-uncertain.json
 
-// Pre-load test balance (replace with real Stripe in production)
-await gate.ledger.credit("test-user", 1.0, {
-  source: "manual",
-  reference: "demo",
-});
+node examples/x402-testnet-recovery/sign-payload.mjs challenge-uncertain.json > proof-uncertain.json
 
-const server = new McpServer({ name: "my-paid-tools", version: "1.0.0" });
+export X402_PAYMENT_UNCERTAIN_PROOF_JSON="$(cat proof-uncertain.json)"
 
-mcp.paidTool("premium_search", {
-  description: "AI-powered search",
-  inputSchema: {
-    type: "object",
-    properties: { query: { type: "string", description: "Search query" } },
-    required: ["query"],
-  },
-  price: 0.05,
-  handler: async ({ query }) => ({ results: [`Premium: ${query}`] }),
-  fallback: async ({ query }) => ({
-    results: [`Free preview for: ${query}`],
-    note: "Top up your balance for full results",
-  }),
-});
-
-mcp.registerAll(server); // batch-registers all tools
-
-const transport = new StdioServerTransport();
-await server.connect(transport);
+npm run scenario:x402-testnet
 ```
 
-**Auto-enriched descriptions** — pricing is appended automatically:
+The flow is intentionally explicit:
 
-```
-premium_search — AI-powered search [Price: $0.05/call]
-```
+- `challenge.mjs` produces the Toolgate-generated x402 challenge.
+- `sign-payload.mjs` produces the x402 client or signer-generated proof.
+- `scenario:x402-testnet` validates Toolgate verify, settle, duplicate replay, fallback, and recovery behavior with that proof.
 
-**Structured response metadata** — every call returns a `_meta.toolgate` block:
+## Support Matrix
 
-```json
-{
-  "_meta": {
-    "toolgate": {
-      "receipt": {
-        "callId": "tg_abc123",
-        "amount": 0.05,
-        "balanceAfter": 0.95
-      },
-      "metrics": { "durationMs": 142 }
-    }
-  }
-}
-```
+| Surface            | Status                                   | What is validated right now                                                                                                                                                                                        |
+| ------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ledger             | Validated                                | local paid execution, fallback, duplicate replay, refund                                                                                                                                                           |
+| Stripe test mode   | Acceptance runner implemented, env-gated | Stripe test-mode webhook credit flow validated via Stripe CLI; duplicate webhook protection and retry-to-paid flow are covered when `STRIPE_SECRET_KEY` is present. Full browser checkout test is optional/manual. |
+| MPP                | Mocked and validated                     | adapter verification path and recovery behavior                                                                                                                                                                    |
+| x402               | Experimental, explicit blocker supported | local verify and settle path is validated; real facilitator run is env-gated and reports the exact blocker when testnet proof input is missing                                                                     |
+| Firecrawl MCP E2E  | Validated                                | official MCP SDK stdio client and server, fallback, paid execution, duplicate replay, trace inspection                                                                                                             |
+| Firecrawl live API | Env-gated                                | real Firecrawl scrape path plus Toolgate recovery behavior                                                                                                                                                         |
 
-**Payment Required response** (when no fallback and balance is zero):
+## Outreach Gate
 
-```json
-{
-  "isError": true,
-  "content": [
-    {
-      "type": "text",
-      "text": "Payment required: $0.05 to call premium_search. Top up: https://checkout.stripe.com/..."
-    }
-  ]
-}
-```
+Outreach remains blocked until both of these are true:
 
-See [`examples/basic-server/`](examples/basic-server/) for a runnable demo.
+1. `npm run scenario:stripe` passes with real Stripe test-mode credentials
+2. `npm run scenario:mcp-e2e` passes
 
----
+At the moment, MCP SDK E2E is green. Stripe test mode is implemented but still depends on `STRIPE_SECRET_KEY` being present in the shell that runs the scenario.
 
-## Stripe Integration
+## Firecrawl Integration
 
-Wire up real payments in 3 steps.
+The first real MCP integration target lives in `integrations/firecrawl-mcp-toolgate/`.
 
-### Step 1 — Create a Checkout session when balance is low
+It now has three distinct surfaces:
 
-```typescript
-import { StripeAdapter } from "@tkorkmaz/toolgate";
+- `scenario-fake.mjs`: deterministic regression coverage
+- `scenario-live.mjs`: live Firecrawl API path
+- `scenario-mcp-e2e.mjs`: official MCP SDK server and client E2E over stdio
 
-const stripe = new StripeAdapter({
-  secretKey: process.env.STRIPE_SECRET_KEY!,
-  webhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
-});
+## x402 Disclaimer
 
-// Returns a Stripe Checkout URL pre-filled with the right amount
-const { url } = await stripe.buildTopUpUrl("user-1", "tg_pub_xxx", 0.05);
-// → https://checkout.stripe.com/pay/cs_live_...
-// Pass this URL back in the 402 response so the caller can top up
-```
-
-Top-up tiers: **$1 · $5 · $10 · $25** (auto-selects the smallest tier ≥ required amount).
-
-### Step 2 — Handle the webhook to credit balances
-
-```typescript
-import { WebhookHandler } from "@tkorkmaz/toolgate";
-
-const webhook = new WebhookHandler({
-  stripeClient: stripe.client,
-  webhookSecret: process.env.STRIPE_WEBHOOK_SECRET!,
-  ledger: gate.ledger,
-});
-
-// In your HTTP handler (Express, Cloudflare Worker, etc.):
-app.post("/webhooks/stripe", async (req, res) => {
-  const result = await webhook.handle(
-    req.rawBody, // must be raw Buffer, not parsed JSON
-    req.headers["stripe-signature"]!,
-  );
-  res.status(result.processed ? 200 : 400).json(result);
-});
-```
-
-`WebhookHandler` automatically:
-
-- Verifies the `Stripe-Signature` HMAC — rejects spoofed requests
-- De-duplicates event IDs — prevents double-credits on Stripe retries
-- Converts cents → USD and credits the ledger atomically
-
-### Step 3 — Publisher payouts via Stripe Connect
-
-```typescript
-// Onboard a publisher
-const { accountId } = await stripe.createConnectAccount(
-  "publisher@example.com",
-);
-const { url } = await stripe.createAccountLink(
-  accountId,
-  returnUrl,
-  refreshUrl,
-);
-// → redirect publisher to url for KYC + bank details
-
-// Schedule weekly payouts (3–10% platform fee retained)
-await stripe.payoutToPublisher(accountId, grossAmountCents);
-```
-
-### Step 4 — Production ledger (Cloudflare D1 / Turso / SQLite)
-
-Swap `InMemoryLedger` for `DbLedger` — same API, persistent across restarts:
-
-```typescript
-import { DbLedger, ToolGate } from "@tkorkmaz/toolgate";
-
-// Run once on startup (idempotent — safe to call every time)
-await DbLedger.runMigrations(db); // db = Cloudflare D1 env.DB, Turso client, etc.
-
-const gate = new ToolGate({
-  publisherKey: process.env.TOOLGATE_PUBLISHER_KEY!,
-  ledger: new DbLedger(db),
-});
-```
-
-Schema created: `tg_balances`, `tg_transactions`, `tg_usage`.
-
----
-
-## Payment Flow
-
-```
-Caller                 Toolgate SDK              Stripe
-──────                 ────────────              ──────
-Top up          ──→   Checkout session  ──→   Stripe Checkout
-                       Webhook received ──←   checkout.session.completed
-                       Credit ledger
-
-Tool called     ──→   Balance check
-                       Deduct atomically
-                       Run handler       ──→   Your code
-                       Return receipt    ──←   Result
-
-No balance      ──→   Run fallback  OR  Return 402 + topUpUrl
-Handler throws  ──→   Refund balance, return error
-```
-
----
-
-## Rail-Agnostic Architecture
-
-Toolgate doesn't collect payments — it controls what happens at the billing decision point. Payment settlement is delegated to rail adapters:
-
-| Rail                   | Settlement                                    | Status     |
-| ---------------------- | --------------------------------------------- | ---------- |
-| **Stripe** (fiat)      | Credit card, BNPL via Stripe Checkout         | Production |
-| **MPP** (Stripe+Tempo) | Session-based micropayments via mppx          | Production |
-| **x402** (Coinbase)    | USDC on Base/Solana/10+ chains via @x402/core | Production |
-| **Custom**             | Implement `RailAdapter` for any backend       | Always     |
-
-```typescript
-import { ToolGate } from "@tkorkmaz/toolgate";
-import { MppRailAdapter } from "@tkorkmaz/toolgate";
-import { stripe } from "mppx/server";
-
-const gate = new ToolGate({
-  publisherKey: "tg_pub_xxx",
-  railAdapters: [
-    new MppRailAdapter({
-      methods: [stripe({ secretKey: process.env.STRIPE_SECRET_KEY! })],
-    }),
-  ],
-});
-
-// Same paidTool API — now with MPP settlement on 402
-const search = gate.paidTool({
-  name: "premium_search",
-  price: 0.05,
-  handler: async (input) => deepSearch(input.query),
-  fallback: async (input) => quickSearch(input.query),
-});
-```
-
-Regardless of rail, the execution pipeline is identical: balance check → policy evaluation → execute or fallback → receipt → refund on error.
-
-When balance is insufficient, each registered adapter contributes a `SettlementAction` to the 402 response — letting the caller pick the rail that suits them.
-
----
-
-## LedgerAdapter (custom storage)
-
-Implement this interface to use any storage backend:
-
-```typescript
-interface LedgerAdapter {
-  getBalance(callerId: string): Promise<number>;
-  deduct(callerId: string, amount: number, meta: DeductMeta): Promise<boolean>;
-  credit(callerId: string, amount: number, meta: CreditMeta): Promise<void>;
-  getUsage(callerId: string, tool: string, period: string): Promise<number>;
-  incrementUsage(callerId: string, tool: string, period: string): Promise<void>;
-}
-```
-
-`deduct` must return `false` (not throw) when the balance is insufficient.
-
----
-
-## Pricing
-
-| Tier         | Calls/month | Platform fee |
-| ------------ | ----------- | ------------ |
-| Free         | 1,000       | 10%          |
-| Pro $29/mo   | 50,000      | 5%           |
-| Scale $99/mo | Unlimited   | 3%           |
-
-> **Note:** Platform fees apply per successful tool call. Rail transaction fees depend on the chosen adapter (Stripe, MPP, or x402) and are charged by that provider separately.
-
-[Sign up at toolgate.dev →](https://toolgate.dev)
-
----
+x402 remains experimental here for one practical reason: proving a real testnet payment still requires an external signer or x402 client flow. The acceptance runner now splits that dependency into challenge generation plus proof signing instead of hiding it behind mocked credits.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT
