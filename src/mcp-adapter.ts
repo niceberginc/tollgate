@@ -169,7 +169,12 @@ export class McpAdapter {
       extra: McpCallExtra,
     ): Promise<McpToolResult> => {
       const callerId = this.config.getCallerId(args, extra);
-      const idempotencyKey = resolveMcpIdempotencyKey(name, config, args, callerId);
+      const idempotencyKey = resolveMcpIdempotencyKey(
+        name,
+        config,
+        args,
+        callerId,
+      );
       const expectedAmount = await resolveExpectedAmount(config, args);
       const existingRecord = await this.gate.idempotency.get(idempotencyKey);
 
@@ -190,18 +195,24 @@ export class McpAdapter {
           proof = { rail: "mpp", mppPaymentHeader: String(mppCredential) };
           traceChallengeId = getString(
             meta["toolgate.mppChallengeId"] ??
-              (meta.toolgate as Record<string, unknown> | undefined)?.mppChallengeId,
+              (meta.toolgate as Record<string, unknown> | undefined)
+                ?.mppChallengeId,
           );
         } else {
           const tgMeta = meta.toolgate as Record<string, unknown> | undefined;
           if (tgMeta?.x402Payment) {
             const actionId = tgMeta.x402ActionId as string | undefined;
+            const paymentRequirements = tgMeta.x402PaymentRequirements as
+              | Record<string, unknown>
+              | undefined;
             proof = {
               rail: "x402",
               x402PaymentPayload: tgMeta.x402Payment as Record<string, unknown>,
             };
             verificationContext = {
               actionId,
+              paymentRequirements:
+                paymentRequirements as VerificationContext["paymentRequirements"],
               expectedAmount,
               currency: "usd",
               toolName: name,
@@ -238,7 +249,8 @@ export class McpAdapter {
                 name: proof.rail === "mpp" ? "mppx" : "x402-facilitator",
                 correlationId:
                   getString(
-                    (meta.toolgate as Record<string, unknown> | undefined)?.providerId,
+                    (meta.toolgate as Record<string, unknown> | undefined)
+                      ?.providerId,
                   ) ?? verification.receiptId,
               };
             }
@@ -265,7 +277,11 @@ export class McpAdapter {
             : undefined,
       });
 
-      if (railProof && verifiedAmount > 0 && (!result.success || result.isFallback)) {
+      if (
+        railProof &&
+        verifiedAmount > 0 &&
+        (!result.success || result.isFallback)
+      ) {
         await this.gate.ledger.deduct(callerId, verifiedAmount, {
           callId: result.receipt?.callId ?? idempotencyKey,
           tool: name,
