@@ -29,6 +29,12 @@ const gate = new ToolGate({
 });
 ```
 
+`DbIdempotencyStore` is exercised in CI against a real SQLite engine, including an 8-process
+race on one shared database file that asserts exactly one claimer wins (the cross-instance
+guarantee, decided by the DB write lock rather than JS event-loop ordering). The same
+`DbClient` adapter shape maps to **Turso/libsql (`@libsql/client`), which is the intended
+production target**; SQLite is the local/CI engine for the same code path.
+
 Production deployments should still validate schema migrations, lease durations against their
 slowest handlers, and TTL settings against their retry windows.
 
