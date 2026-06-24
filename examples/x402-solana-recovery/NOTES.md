@@ -81,6 +81,13 @@ node examples/x402-solana-recovery/devnet-settle.mjs
 A confirmed devnet settle (`err: None`) had its **fee paid by the facilitator's
 fee payer, not the client** — the gasless SVM design working as intended.
 
+A real cross-account transfer (set `PAY_TO` to a second funded wallet) moved
+exactly 0.001 USDC payer → recipient on devnet, gas paid by the facilitator:
+payer 20 → 19.999, recipient 20 → 20.001
+(tx `de6S852jpFTJ1hHLNMBPAaWqrkkMXzjq8XqPbbCf3LD4s1Mm6ZDAU3ah6dxUZueyN19U2FXP58E7CstHGctSncG`).
+Note: the SVM "exact" scheme has a fixed instruction layout (no ATA creation),
+so the recipient's token account must already exist before settle.
+
 ### Protocol details learned from a live facilitator
 
 The SVM "exact" v2 wire format is stricter than the EVM path. Getting verify to
