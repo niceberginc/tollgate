@@ -60,11 +60,17 @@ export {
   EVM_USDC_ADDRESSES,
   EVM_USDC_EIP712_DOMAINS,
   SOLANA_USDC_ADDRESSES,
+  buildSolanaPaymentPayload,
+  extractSolanaRequirement,
 } from "./rail-adapters/index.js";
 export type {
   StripeRailConfig,
   MppRailConfig,
   X402RailConfig,
+  BuildSolanaPaymentInput,
+  BuildSolanaPaymentResult,
+  SolanaPaymentPayload,
+  SolanaPaymentRequirement,
 } from "./rail-adapters/index.js";
 
 // Stripe Integration (Phase 1)
