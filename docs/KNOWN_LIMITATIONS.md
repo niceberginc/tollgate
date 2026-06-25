@@ -1,6 +1,6 @@
 # Known Limitations
 
-Toolgate is a developer preview. It is useful today for local-first demos, single-process
+Tollgate is a developer preview. It is useful today for local-first demos, single-process
 prototypes, and design-partner evaluation, but several production boundaries are intentional.
 
 ## Durable idempotency
@@ -20,10 +20,10 @@ database (Cloudflare D1, Turso/libsql, SQLite). It uses the same atomic primitiv
 any number of workers collapse to a single owner with no check-then-act race:
 
 ```ts
-import { ToolGate, DbIdempotencyStore } from "@tkorkmaz/toolgate";
+import { TollGate, DbIdempotencyStore } from "@niceberglabs/tollgate";
 
 await DbIdempotencyStore.runMigrations(env.DB); // once, at startup
-const gate = new ToolGate({
+const gate = new TollGate({
   publisherKey,
   idempotencyStore: new DbIdempotencyStore(env.DB),
 });
@@ -74,7 +74,7 @@ as integration scaffolding until exercised against a live provider.
 
 ## Hosted product surface
 
-Toolgate currently ships as an open-source runtime. It does not yet include:
+Tollgate currently ships as an open-source runtime. It does not yet include:
 
 - hosted dashboard,
 - multi-tenant hosted ledger,
